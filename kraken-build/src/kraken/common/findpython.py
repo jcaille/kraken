@@ -22,6 +22,7 @@ class InterpreterCandidate(TypedDict):
     path: str
     min_version: NotRequired[str | None]
     exact_version: NotRequired[str | None]
+    shim: NotRequired[bool]
 
 
 class Interpreter(TypedDict):
@@ -93,6 +94,17 @@ def get_candidates(
     If *path_list* is not specified, the current PATH is used. If *check_pyenv* is True, Python interpreters
     installed via pyenv are also included in the results.
     """
+
+    for candidate in _get_candidates():
+        if ".pyenv/shims" in candidate["path"].replace("\\", "/"):
+            candidate["shim"] = True
+        yield candidate
+
+
+def _get_candidates(
+    path_list: Sequence[str | Path] | None = None, check_pyenv: bool = True
+) -> Iterator[InterpreterCandidate]:
+    """Internal. Implementation of `get_candidates()` without Pyenv shim detection."""
 
     if path_list is None:
         path_list = os.environ["PATH"].split(os.pathsep)
@@ -178,7 +190,9 @@ def get_python_interpreter_version(python_bin: str) -> str:
 
 
 def evaluate_candidates(
-    candidates: Iterable[InterpreterCandidate], cache: InterpreterVersionCache | None = None
+    candidates: Iterable[InterpreterCandidate],
+    cache: InterpreterVersionCache | None = None,
+    ignore_shims: bool = True,
 ) -> list[Interpreter]:
     """
     Evaluates Python interpreter candidates and returns the deduplicated list of interpreters that were found.
@@ -188,6 +202,9 @@ def evaluate_candidates(
     visited: set[Path] = set()
 
     for choice in candidates:
+        if ignore_shims and choice.get("shim"):
+            continue
+
         try:
             path = Path(choice["path"]).resolve()
         except FileNotFoundError:
@@ -198,14 +215,14 @@ def evaluate_candidates(
             continue
         visited.add(path)
 
-        version = cache.get_version(path) if cache else None
+        version = cache.get_version(path) if cache and not choice.get("shim") else None
         if version is None:
             try:
                 version = get_python_interpreter_version(str(path))
             except (subprocess.CalledProcessError, RuntimeError, FileNotFoundError):
                 logger.debug("Failed to get version for Python interpreter %s", path, exc_info=True)
                 continue
-            if cache:
+            if cache and not choice.get("shim"):
                 cache.set_version(path, version)
 
         interpreter: Interpreter = {"path": str(path), "version": version}
