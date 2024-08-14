@@ -103,7 +103,7 @@ class BuildEnvManager:
         env.build(requirements, transitive)
         hash_algorithm = self.get_hash_algorithm()
         metadata = BuildEnvMetadata(
-            datetime.datetime.utcnow(),
+            datetime.datetime.now(datetime.timezone.utc),
             env.get_type(),
             requirements.to_hash(hash_algorithm),
             hash_algorithm,
