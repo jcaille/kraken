@@ -1,7 +1,11 @@
 import contextlib
+import json
 import logging
 from pathlib import Path
 from typing import Any
+
+import requests
+import requests.auth
 
 from kraken.common import atomic_file_swap, not_none
 from kraken.core import Project, Property, TaskStatus
@@ -36,6 +40,98 @@ class CargoPublishTask(CargoBuildTask):
 
     #: Cargo.toml which to temporarily bump
     cargo_toml_file: Property[Path] = Property.default("Config.toml")
+
+    #: Allow Overwrite of existing packages
+    allow_overwrite: Property[bool] = Property.default(False)
+
+    def prepare(self) -> TaskStatus | None:
+        """Checks if the crate@version already exists in the registry. If so, the task will be skipped"""
+        if self.allow_overwrite.get():
+            return TaskStatus.pending()
+
+        package_name = self.package_name.get()
+        if package_name is None:
+            return TaskStatus.pending(
+                "Unable to verify package existence - unknown package name"
+            )
+        version = self.version.get()
+        if version is None:
+            return TaskStatus.pending(
+                "Unable to verify package existence - unknown version"
+            )
+
+        # The following is based on [Index Format](https://doc.rust-lang.org/cargo/reference/registry-index.html#index-format#:~:text=Index%20Format)
+        # >> Index Configuration
+        registry = self.registry.get()
+        if not registry.index.startswith("sparse+"):
+            return TaskStatus.pending(
+                "Unable to verify package existence - registry is not sparse"
+            )
+        index = registry.index.removeprefix("sparse+")
+
+        # >> Index authentication
+        session = requests.sessions.Session()
+        config_response = session.get(f"{index}/config.json")
+        if config_response.status_code == 401:
+            if registry.read_credentials is None:
+                return TaskStatus.pending(
+                    "Unable to verify package existence - registry requires authentication, but no credentials set"
+                )
+            session.auth = registry.read_credentials
+            config_response = session.get(f"{index}/config.json")
+            if config_response.status_code % 200 != 0:
+                logger.warn(config_response.text)
+                return TaskStatus.pending(
+                    "Unable to verify package existence - failed to download config.json file from registry"
+                )
+
+        # >> Index files layout
+        path = []
+        if len(package_name) == 1:
+            path = ["1"]
+        elif len(package_name) == 2:
+            path = ["2"]
+        elif len(package_name) == 3:
+            path = ["3", package_name.lower()[0]]
+        else:
+            package_name_lower = package_name.lower()
+            path = [package_name_lower[0:2], package_name_lower[2:4]]
+
+        # >> Download the package file
+        package_path = "/".join(path + [package_name])
+        package_response = session.get(f"{index}/{package_path}")
+
+        if package_response.status_code in [404, 410, 451]:
+            return TaskStatus.pending(
+                "Package {package_name} does not already exists in {registry.alias}"
+            )
+        elif package_response.status_code % 200 != 0:
+            logger.warn(package_response.text)
+            return TaskStatus.pending(
+                "Unable to verify package existence - error when fetching package information"
+            )
+
+        # >> Versions should be unique up to the semver build metadata
+        def sanitize_version(version: str):
+            return version.replace("+", "")
+
+        sanitized_version = sanitize_version(version)
+
+        # >> Search for relevant version in the index file
+        for regirstry_version in package_response.text.split("\n"):
+            # Index File is sometimes newline terminated
+            if not registry_version:
+                continue
+            registry_version = sanitize_version(
+                json.loads(regirstry_version).get("vers", "")
+            )
+            if registry_version == sanitized_version:
+                return TaskStatus.skipped(
+                    f"Package {package_name} with version {version} already exists in {registry.alias}"
+                )
+        return TaskStatus.pending(
+            f"Package {package_name} with version {version} does not already exists in {registry.alias}"
+        )
 
     def get_cargo_command(self, env: dict[str, str]) -> list[str]:
         super().get_cargo_command(env)
