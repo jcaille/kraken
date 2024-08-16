@@ -115,19 +115,14 @@ class CargoPublishTask(CargoBuildTask):
             if manifest.dependencies:
                 self._push_version_to_path_deps(fixed_version_string, manifest.dependencies.data, registry.alias)
             if manifest.build_dependencies:
-                self._push_version_to_path_deps(
-                    fixed_version_string,
-                    manifest.build_dependencies.data,
-                    registry.alias,
-                )
+                self._push_version_to_path_deps(fixed_version_string,manifest.build_dependencies.data,registry.alias)
         return manifest.to_toml_string()
 
     def _push_version_to_path_deps(
         self, version_string: str, dependencies: dict[str, Any], registry_alias: str
     ) -> None:
         """For each dependency in the given dependencies, if the dependency is a `path` dependency, injects the current
-        version and registry (required for publishing - path dependencies cannot be published alone).
-        """
+        version and registry (required for publishing - path dependencies cannot be published alone)."""
         for dep_name in dependencies:
             dependency = dependencies[dep_name]
             if isinstance(dependency, dict):
@@ -182,6 +177,7 @@ class CargoPublishTask(CargoBuildTask):
                 )
 
         # >> Index files layout
+        # Reference: https://doc.rust-lang.org/cargo/reference/registry-index.html#index-files
         path = []
         if len(package_name) == 1:
             path = ["1"]
@@ -192,21 +188,21 @@ class CargoPublishTask(CargoBuildTask):
         else:
             package_name_lower = package_name.lower()
             path = [package_name_lower[0:2], package_name_lower[2:4]]
+        
+        # >> Download the index file
+        index_path = "/".join(path + [package_name])
+        index_response = session.get(f"{index}/{index_path}")
 
-        # >> Download the package file
-        package_path = "/".join(path + [package_name])
-        package_response = session.get(f"{index}/{package_path}")
-
-        if package_response.status_code in [404, 410, 451]:
+        if index_response.status_code in [404, 410, 451]:
             return TaskStatus.pending("Package {package_name} does not already exists in {registry.alias}")
-        elif package_response.status_code % 200 != 0:
-            logger.warn(package_response.text)
+        elif index_response.status_code % 200 != 0:
+            logger.warn(index_response.text)
             return TaskStatus.pending("Unable to verify package existence - error when fetching package information")
 
         sanitized_version = cls._sanitize_version(version)
 
         # >> Search for relevant version in the index file
-        for registry_version in package_response.text.split("\n"):
+        for registry_version in index_response.text.split("\n"):
             # Index File is sometimes newline terminated
             if not registry_version:
                 continue
