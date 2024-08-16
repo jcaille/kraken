@@ -67,8 +67,7 @@ class CargoPublishTask(CargoBuildTask):
             return self._check_package_existence(package_name, version, self.registry.get())
         except Exception as e:
             logger.warn(
-                f"An error happened while checking for {package_name} existence in {self.registry.get().alias}",
-                e,
+                f"An error happened while checking for {package_name} existence in {self.registry.get().alias}, {e}",
             )
             return TaskStatus.pending("Unable to verify package existence")
 
@@ -159,6 +158,7 @@ class CargoPublishTask(CargoBuildTask):
         if not registry.index.startswith("sparse+"):
             return TaskStatus.pending("Unable to verify package existence - Only sparse registries are supported")
         index = registry.index.removeprefix("sparse+")
+        index = index.removesuffix("/")
 
         # >> Index authentication
         session = requests.sessions.Session()
