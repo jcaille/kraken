@@ -50,6 +50,7 @@ class CargoPublishTask(CargoBuildTask):
         if self.allow_overwrite.get():
             return TaskStatus.pending()
 
+        logger.warn("cargo_toml_file", self.cargo_toml_file.get())
         manifest = CargoManifest.read(self.cargo_toml_file.get())
         manifest_package = manifest.package
         manifest_package_name = manifest_package.name if manifest_package is not None else None
@@ -59,6 +60,7 @@ class CargoPublishTask(CargoBuildTask):
         version = self.version.get_or(manifest_version)
 
         if not package_name:
+            logger.warn("manifest_package", manifest_package)
             return TaskStatus.pending("Unable to verify package existence - unknown package name")
         if not version:
             return TaskStatus.pending("Unable to verify package existence - unknown version")
