@@ -59,7 +59,7 @@ class CargoPublishTask(CargoBuildTask):
         version = self.version.get() or manifest_version
 
         if not package_name:
-            return TaskStatus.pending(f"Unable to verify package existence - unknown package name")
+            return TaskStatus.pending("Unable to verify package existence - unknown package name")
         if not version:
             return TaskStatus.pending("Unable to verify package existence - unknown version")
 
