@@ -50,22 +50,114 @@ class CargoPublishTask(CargoBuildTask):
             return TaskStatus.pending()
 
         package_name = self.package_name.get()
-        if package_name is None:
+        if not package_name:
             return TaskStatus.pending(
                 "Unable to verify package existence - unknown package name"
             )
         version = self.version.get()
-        if version is None:
+        if not version:
             return TaskStatus.pending(
                 "Unable to verify package existence - unknown version"
             )
 
-        # The following is based on [Index Format](https://doc.rust-lang.org/cargo/reference/registry-index.html#index-format#:~:text=Index%20Format)
-        # >> Index Configuration
+        try:
+            return self._check_package_existence(
+                package_name, version, self.registry.get()
+            )
+        except Exception as e:
+            logger.warn(
+                f"An error happened while checking for {package_name} existence in {self.registry.get().alias}",
+                e,
+            )
+            return TaskStatus.pending("Unable to verify package existence")
+
+    def get_cargo_command(self, env: dict[str, str]) -> list[str]:
+        super().get_cargo_command(env)
         registry = self.registry.get()
+        if registry.publish_token is None:
+            raise ValueError(f'registry {registry.alias!r} missing a "publish_token"')
+        command = (
+            ["cargo", "publish"]
+            + (["--locked"] if self.should_add_locked_flag() else [])
+            + self.additional_args.get()
+            + ["--registry", registry.alias, "--token", registry.publish_token]
+            + ([] if self.verify.get() else ["--no-verify"])
+        )
+        package_name = self.package_name.get()
+        if package_name is not None:
+            command += ["--package", package_name]
+        if self.allow_dirty.get() and "--allow-dirty" not in command:
+            command.append("--allow-dirty")
+        return command
+
+    def make_safe(self, args: list[str], env: dict[str, str]) -> None:
+        args[args.index(not_none(self.registry.get().publish_token))] = "[MASKED]"
+        super().make_safe(args, env)
+
+    def __init__(self, name: str, project: Project) -> None:
+        super().__init__(name, project)
+        self._base_command = ["cargo", "publish"]
+
+    def _get_updated_cargo_toml(self, version: str) -> str:
+        from kraken.std.cargo.manifest import CargoManifest
+
+        manifest = CargoManifest.read(self.cargo_toml_file.get())
+        if manifest.package is None:
+            return manifest.to_toml_string()
+
+        fixed_version_string = self._sanitize_version(version)
+        manifest.package.version = fixed_version_string
+        if manifest.workspace and manifest.workspace.package:
+            manifest.workspace.package.version = version
+
+        if self.registry.is_filled():
+            CargoProject.get_or_create(self.project)
+            registry = self.registry.get()
+            if manifest.dependencies:
+                self._push_version_to_path_deps(
+                    fixed_version_string, manifest.dependencies.data, registry.alias
+                )
+            if manifest.build_dependencies:
+                self._push_version_to_path_deps(
+                    fixed_version_string,
+                    manifest.build_dependencies.data,
+                    registry.alias,
+                )
+        return manifest.to_toml_string()
+
+    def _push_version_to_path_deps(
+        self, version_string: str, dependencies: dict[str, Any], registry_alias: str
+    ) -> None:
+        """For each dependency in the given dependencies, if the dependency is a `path` dependency, injects the current
+        version and registry (required for publishing - path dependencies cannot be published alone).
+        """
+        for dep_name in dependencies:
+            dependency = dependencies[dep_name]
+            if isinstance(dependency, dict):
+                if "path" in dependency:
+                    dependency["version"] = f"={version_string}"
+                    dependency["registry"] = registry_alias
+
+    @staticmethod
+    def _sanitize_version(version: str) -> str:
+        """
+        Cargo does not play nicely with semver metadata (ie. 1.0.1-dev3+abc123)
+         We replace that to 1.0.1-dev3abc123
+        """
+        return version.replace("+", "")
+
+    def _check_package_existence(
+        self, package_name: str, version: str, registry: CargoRegistry
+    ) -> TaskStatus | None:
+        """
+        Checks wether the given `package_name`@`version` is indexed in the provided `registry`.
+
+        Checking is done by reading from the registry's index HTTP API, following the
+        [Index Format](https://doc.rust-lang.org/cargo/reference/registry-index.html) documentation
+        """
         if not registry.index.startswith("sparse+"):
             return TaskStatus.pending(
-                "Unable to verify package existence - registry is not sparse"
+                "Unable to verify package existence - Only sparse registries are supported"
             )
         index = registry.index.removeprefix("sparse+")
 
@@ -111,18 +203,14 @@ class CargoPublishTask(CargoBuildTask):
                 "Unable to verify package existence - error when fetching package information"
             )
 
-        # >> Versions should be unique up to the semver build metadata
-        def sanitize_version(version: str):
-            return version.replace("+", "")
-
-        sanitized_version = sanitize_version(version)
+        sanitized_version = self._sanitize_version(version)
 
         # >> Search for relevant version in the index file
         for regirstry_version in package_response.text.split("\n"):
             # Index File is sometimes newline terminated
             if not registry_version:
                 continue
-            registry_version = sanitize_version(
+            registry_version = self._sanitize_version(
                 json.loads(regirstry_version).get("vers", "")
             )
             if registry_version == sanitized_version:
@@ -132,68 +220,6 @@ class CargoPublishTask(CargoBuildTask):
         return TaskStatus.pending(
             f"Package {package_name} with version {version} does not already exists in {registry.alias}"
         )
-
-    def get_cargo_command(self, env: dict[str, str]) -> list[str]:
-        super().get_cargo_command(env)
-        registry = self.registry.get()
-        if registry.publish_token is None:
-            raise ValueError(f'registry {registry.alias!r} missing a "publish_token"')
-        command = (
-            ["cargo", "publish"]
-            + (["--locked"] if self.should_add_locked_flag() else [])
-            + self.additional_args.get()
-            + ["--registry", registry.alias, "--token", registry.publish_token]
-            + ([] if self.verify.get() else ["--no-verify"])
-        )
-        package_name = self.package_name.get()
-        if package_name is not None:
-            command += ["--package", package_name]
-        if self.allow_dirty.get() and "--allow-dirty" not in command:
-            command.append("--allow-dirty")
-        return command
-
-    def make_safe(self, args: list[str], env: dict[str, str]) -> None:
-        args[args.index(not_none(self.registry.get().publish_token))] = "[MASKED]"
-        super().make_safe(args, env)
-
-    def __init__(self, name: str, project: Project) -> None:
-        super().__init__(name, project)
-        self._base_command = ["cargo", "publish"]
-
-    def _get_updated_cargo_toml(self, version: str) -> str:
-        from kraken.std.cargo.manifest import CargoManifest
-
-        manifest = CargoManifest.read(self.cargo_toml_file.get())
-        if manifest.package is None:
-            return manifest.to_toml_string()
-
-        # Cargo does not play nicely with semver metadata (ie. 1.0.1-dev3+abc123)
-        # We replace that to 1.0.1-dev3abc123
-        fixed_version_string = version.replace("+", "")
-        manifest.package.version = fixed_version_string
-        if manifest.workspace and manifest.workspace.package:
-            manifest.workspace.package.version = version
-
-        if self.registry.is_filled():
-            CargoProject.get_or_create(self.project)
-            registry = self.registry.get()
-            if manifest.dependencies:
-                self._push_version_to_path_deps(fixed_version_string, manifest.dependencies.data, registry.alias)
-            if manifest.build_dependencies:
-                self._push_version_to_path_deps(fixed_version_string, manifest.build_dependencies.data, registry.alias)
-        return manifest.to_toml_string()
-
-    def _push_version_to_path_deps(
-        self, version_string: str, dependencies: dict[str, Any], registry_alias: str
-    ) -> None:
-        """For each dependency in the given dependencies, if the dependency is a `path` dependency, injects the current
-        version and registry (required for publishing - path dependencies cannot be published alone)."""
-        for dep_name in dependencies:
-            dependency = dependencies[dep_name]
-            if isinstance(dependency, dict):
-                if "path" in dependency:
-                    dependency["version"] = f"={version_string}"
-                    dependency["registry"] = registry_alias
 
     def execute(self) -> TaskStatus:
         with contextlib.ExitStack() as stack:
