@@ -10,6 +10,7 @@ import requests.auth
 from kraken.common import atomic_file_swap, not_none
 from kraken.core import Project, Property, TaskStatus
 from kraken.std.cargo import CargoProject
+from kraken.std.cargo.manifest import CargoManifest
 
 from ..config import CargoRegistry
 from .cargo_build_task import CargoBuildTask
@@ -49,12 +50,22 @@ class CargoPublishTask(CargoBuildTask):
         if self.allow_overwrite.get():
             return TaskStatus.pending()
 
-        package_name = self.package_name.get()
+        manifest = CargoManifest.read(self.cargo_toml_file.get())
+        manifest_package = manifest.package
+        manifest_package_name = (
+            manifest_package.name if manifest_package is not None else None
+        )
+        manifest_version = (
+            manifest_package.version if manifest_package is not None else None
+        )
+
+        package_name = self.package_name.get_or(manifest_package_name)
+        version = self.version.get_or(manifest_version)
+
         if not package_name:
             return TaskStatus.pending(
                 "Unable to verify package existence - unknown package name"
             )
-        version = self.version.get()
         if not version:
             return TaskStatus.pending(
                 "Unable to verify package existence - unknown version"
@@ -99,8 +110,6 @@ class CargoPublishTask(CargoBuildTask):
         self._base_command = ["cargo", "publish"]
 
     def _get_updated_cargo_toml(self, version: str) -> str:
-        from kraken.std.cargo.manifest import CargoManifest
-
         manifest = CargoManifest.read(self.cargo_toml_file.get())
         if manifest.package is None:
             return manifest.to_toml_string()
@@ -146,8 +155,9 @@ class CargoPublishTask(CargoBuildTask):
         """
         return version.replace("+", "")
 
+    @classmethod
     def _check_package_existence(
-        self, package_name: str, version: str, registry: CargoRegistry
+        cls, package_name: str, version: str, registry: CargoRegistry
     ) -> TaskStatus | None:
         """
         Checks wether the given `package_name`@`version` is indexed in the provided `registry`.
@@ -203,14 +213,14 @@ class CargoPublishTask(CargoBuildTask):
                 "Unable to verify package existence - error when fetching package information"
             )
 
-        sanitized_version = self._sanitize_version(version)
+        sanitized_version = cls._sanitize_version(version)
 
         # >> Search for relevant version in the index file
         for registry_version in package_response.text.split("\n"):
             # Index File is sometimes newline terminated
             if not registry_version:
                 continue
-            registry_version = self._sanitize_version(
+            registry_version = cls._sanitize_version(
                 json.loads(registry_version).get("vers", "")
             )
             if registry_version == sanitized_version:

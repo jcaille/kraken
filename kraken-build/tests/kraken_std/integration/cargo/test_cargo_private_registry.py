@@ -77,6 +77,26 @@ def publish_lib_and_build_app(repository: CargoRepositoryWithAuth, tempdir: Path
             )
             project1.context.execute(["fmt", "lint", "publish"])
 
+        # Try to publish the same version again - the task should be skipped and should not fail
+        # with kraken_ctx() as ctx, kraken_project(ctx) as project2:
+        #     project2.directory = lib_dir
+        #     cargo_registry(
+        #         cargo_registry_id,
+        #         repository.index_url,
+        #         read_credentials=repository.creds,
+        #         publish_token=repository.token,
+        #     )
+        #     cargo_auth_proxy()
+        #     task = cargo_sync_config()
+        #     task.git_fetch_with_cli.set(True)
+        #     cargo_check_toolchain_version(minimal_version="1.60")
+        #     cargo_publish(
+        #         cargo_registry_id,
+        #         version=publish_version,
+        #         cargo_toml_file=project1.directory.joinpath("Cargo.toml"),
+        #     )
+        #     project1.context.execute(["fmt", "lint", "publish"])
+
         num_tries = 3
         for idx in range(num_tries):
             try:
@@ -86,9 +106,9 @@ def publish_lib_and_build_app(repository: CargoRepositoryWithAuth, tempdir: Path
                     repository.name,
                     repository.index_url,
                 )
-                with kraken_ctx() as ctx, kraken_project(ctx) as project2:
-                    project2.directory = app_dir
-                    cargo_toml = project2.directory / "Cargo.toml"
+                with kraken_ctx() as ctx, kraken_project(ctx) as project3:
+                    project3.directory = app_dir
+                    cargo_toml = project3.directory / "Cargo.toml"
                     cargo_toml.write_text(cargo_toml.read_text().replace("$VERSION", publish_version))
                     cargo_registry(
                         cargo_registry_id,
@@ -100,7 +120,7 @@ def publish_lib_and_build_app(repository: CargoRepositoryWithAuth, tempdir: Path
                     sync_task.git_fetch_with_cli.set(True)
                     build_task = cargo_build("debug")
                     build_task.from_project_dir = True
-                    project2.context.execute(["fmt", "build"])
+                    project3.context.execute(["fmt", "build"])
 
                 # Running the application should give "Hello from hello-world-lib!".
                 output = sp.check_output([app_dir / "target" / "debug" / "hello-world-app"]).decode()
