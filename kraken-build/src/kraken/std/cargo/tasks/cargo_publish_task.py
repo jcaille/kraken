@@ -147,6 +147,20 @@ class CargoPublishTask(CargoBuildTask):
                     dependency["version"] = f"={version_string}"
                     dependency["registry"] = registry_alias
 
+    def execute(self) -> TaskStatus:
+        with contextlib.ExitStack() as stack:
+            if (version := self.version.get()) is not None:
+                content = self._get_updated_cargo_toml(version)
+                fp = stack.enter_context(
+                    atomic_file_swap(
+                        self.cargo_toml_file.get(), "w", always_revert=True
+                    )
+                )
+                fp.write(content)
+                fp.close()
+            result = super().execute()
+        return result
+
     @staticmethod
     def _sanitize_version(version: str) -> str:
         """
@@ -230,13 +244,3 @@ class CargoPublishTask(CargoBuildTask):
         return TaskStatus.pending(
             f"Package {package_name} with version {version} does not already exists in {registry.alias}"
         )
-
-    def execute(self) -> TaskStatus:
-        with contextlib.ExitStack() as stack:
-            if (version := self.version.get()) is not None:
-                content = self._get_updated_cargo_toml(version)
-                fp = stack.enter_context(atomic_file_swap(self.cargo_toml_file.get(), "w", always_revert=True))
-                fp.write(content)
-                fp.close()
-            result = super().execute()
-        return result
