@@ -115,7 +115,7 @@ class CargoPublishTask(CargoBuildTask):
             if manifest.dependencies:
                 self._push_version_to_path_deps(fixed_version_string, manifest.dependencies.data, registry.alias)
             if manifest.build_dependencies:
-                self._push_version_to_path_deps(fixed_version_string,manifest.build_dependencies.data,registry.alias)
+                self._push_version_to_path_deps(fixed_version_string, manifest.build_dependencies.data, registry.alias)
         return manifest.to_toml_string()
 
     def _push_version_to_path_deps(
@@ -188,7 +188,7 @@ class CargoPublishTask(CargoBuildTask):
         else:
             package_name_lower = package_name.lower()
             path = [package_name_lower[0:2], package_name_lower[2:4]]
-        
+
         # >> Download the index file
         index_path = "/".join(path + [package_name])
         index_response = session.get(f"{index}/{index_path}")

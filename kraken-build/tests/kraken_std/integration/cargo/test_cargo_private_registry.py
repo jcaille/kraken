@@ -90,12 +90,14 @@ def publish_lib_and_build_app(repository: CargoRepositoryWithAuth, tempdir: Path
             task = cargo_sync_config()
             task.git_fetch_with_cli.set(True)
             cargo_check_toolchain_version(minimal_version="1.60")
-            cargo_publish(
+            public_task = cargo_publish(
                 cargo_registry_id,
                 version=publish_version,
                 cargo_toml_file=project1.directory.joinpath("Cargo.toml"),
             )
-            project1.context.execute(["fmt", "lint", "publish"])
+            graph = project2.context.execute(["fmt", "lint", "publish"])
+            status = graph.get_status(public_task)
+            assert status is not None and status.is_skipped()
 
         num_tries = 3
         for idx in range(num_tries):
