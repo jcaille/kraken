@@ -206,12 +206,12 @@ class CargoPublishTask(CargoBuildTask):
         sanitized_version = self._sanitize_version(version)
 
         # >> Search for relevant version in the index file
-        for regirstry_version in package_response.text.split("\n"):
+        for registry_version in package_response.text.split("\n"):
             # Index File is sometimes newline terminated
             if not registry_version:
                 continue
             registry_version = self._sanitize_version(
-                json.loads(regirstry_version).get("vers", "")
+                json.loads(registry_version).get("vers", "")
             )
             if registry_version == sanitized_version:
                 return TaskStatus.skipped(
