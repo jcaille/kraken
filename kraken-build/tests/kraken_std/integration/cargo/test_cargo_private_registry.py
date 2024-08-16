@@ -78,24 +78,24 @@ def publish_lib_and_build_app(repository: CargoRepositoryWithAuth, tempdir: Path
             project1.context.execute(["fmt", "lint", "publish"])
 
         # Try to publish the same version again - the task should be skipped and should not fail
-        # with kraken_ctx() as ctx, kraken_project(ctx) as project2:
-        #     project2.directory = lib_dir
-        #     cargo_registry(
-        #         cargo_registry_id,
-        #         repository.index_url,
-        #         read_credentials=repository.creds,
-        #         publish_token=repository.token,
-        #     )
-        #     cargo_auth_proxy()
-        #     task = cargo_sync_config()
-        #     task.git_fetch_with_cli.set(True)
-        #     cargo_check_toolchain_version(minimal_version="1.60")
-        #     cargo_publish(
-        #         cargo_registry_id,
-        #         version=publish_version,
-        #         cargo_toml_file=project1.directory.joinpath("Cargo.toml"),
-        #     )
-        #     project1.context.execute(["fmt", "lint", "publish"])
+        with kraken_ctx() as ctx, kraken_project(ctx) as project2:
+            project2.directory = lib_dir
+            cargo_registry(
+                cargo_registry_id,
+                repository.index_url,
+                read_credentials=repository.creds,
+                publish_token=repository.token,
+            )
+            cargo_auth_proxy()
+            task = cargo_sync_config()
+            task.git_fetch_with_cli.set(True)
+            cargo_check_toolchain_version(minimal_version="1.60")
+            cargo_publish(
+                cargo_registry_id,
+                version=publish_version,
+                cargo_toml_file=project1.directory.joinpath("Cargo.toml"),
+            )
+            project1.context.execute(["fmt", "lint", "publish"])
 
         num_tries = 3
         for idx in range(num_tries):
