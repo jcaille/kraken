@@ -52,29 +52,19 @@ class CargoPublishTask(CargoBuildTask):
 
         manifest = CargoManifest.read(self.cargo_toml_file.get())
         manifest_package = manifest.package
-        manifest_package_name = (
-            manifest_package.name if manifest_package is not None else None
-        )
-        manifest_version = (
-            manifest_package.version if manifest_package is not None else None
-        )
+        manifest_package_name = manifest_package.name if manifest_package is not None else None
+        manifest_version = manifest_package.version if manifest_package is not None else None
 
         package_name = self.package_name.get_or(manifest_package_name)
         version = self.version.get_or(manifest_version)
 
         if not package_name:
-            return TaskStatus.pending(
-                "Unable to verify package existence - unknown package name"
-            )
+            return TaskStatus.pending("Unable to verify package existence - unknown package name")
         if not version:
-            return TaskStatus.pending(
-                "Unable to verify package existence - unknown version"
-            )
+            return TaskStatus.pending("Unable to verify package existence - unknown version")
 
         try:
-            return self._check_package_existence(
-                package_name, version, self.registry.get()
-            )
+            return self._check_package_existence(package_name, version, self.registry.get())
         except Exception as e:
             logger.warn(
                 f"An error happened while checking for {package_name} existence in {self.registry.get().alias}",
@@ -123,9 +113,7 @@ class CargoPublishTask(CargoBuildTask):
             CargoProject.get_or_create(self.project)
             registry = self.registry.get()
             if manifest.dependencies:
-                self._push_version_to_path_deps(
-                    fixed_version_string, manifest.dependencies.data, registry.alias
-                )
+                self._push_version_to_path_deps(fixed_version_string, manifest.dependencies.data, registry.alias)
             if manifest.build_dependencies:
                 self._push_version_to_path_deps(
                     fixed_version_string,
@@ -151,11 +139,7 @@ class CargoPublishTask(CargoBuildTask):
         with contextlib.ExitStack() as stack:
             if (version := self.version.get()) is not None:
                 content = self._get_updated_cargo_toml(version)
-                fp = stack.enter_context(
-                    atomic_file_swap(
-                        self.cargo_toml_file.get(), "w", always_revert=True
-                    )
-                )
+                fp = stack.enter_context(atomic_file_swap(self.cargo_toml_file.get(), "w", always_revert=True))
                 fp.write(content)
                 fp.close()
             result = super().execute()
@@ -170,9 +154,7 @@ class CargoPublishTask(CargoBuildTask):
         return version.replace("+", "")
 
     @classmethod
-    def _check_package_existence(
-        cls, package_name: str, version: str, registry: CargoRegistry
-    ) -> TaskStatus | None:
+    def _check_package_existence(cls, package_name: str, version: str, registry: CargoRegistry) -> TaskStatus | None:
         """
         Checks wether the given `package_name`@`version` is indexed in the provided `registry`.
 
@@ -180,9 +162,7 @@ class CargoPublishTask(CargoBuildTask):
         [Index Format](https://doc.rust-lang.org/cargo/reference/registry-index.html) documentation
         """
         if not registry.index.startswith("sparse+"):
-            return TaskStatus.pending(
-                "Unable to verify package existence - Only sparse registries are supported"
-            )
+            return TaskStatus.pending("Unable to verify package existence - Only sparse registries are supported")
         index = registry.index.removeprefix("sparse+")
 
         # >> Index authentication
@@ -218,14 +198,10 @@ class CargoPublishTask(CargoBuildTask):
         package_response = session.get(f"{index}/{package_path}")
 
         if package_response.status_code in [404, 410, 451]:
-            return TaskStatus.pending(
-                "Package {package_name} does not already exists in {registry.alias}"
-            )
+            return TaskStatus.pending("Package {package_name} does not already exists in {registry.alias}")
         elif package_response.status_code % 200 != 0:
             logger.warn(package_response.text)
-            return TaskStatus.pending(
-                "Unable to verify package existence - error when fetching package information"
-            )
+            return TaskStatus.pending("Unable to verify package existence - error when fetching package information")
 
         sanitized_version = cls._sanitize_version(version)
 
@@ -234,9 +210,7 @@ class CargoPublishTask(CargoBuildTask):
             # Index File is sometimes newline terminated
             if not registry_version:
                 continue
-            registry_version = cls._sanitize_version(
-                json.loads(registry_version).get("vers", "")
-            )
+            registry_version = cls._sanitize_version(json.loads(registry_version).get("vers", ""))
             if registry_version == sanitized_version:
                 return TaskStatus.skipped(
                     f"Package {package_name} with version {version} already exists in {registry.alias}"
