@@ -144,7 +144,7 @@ class CargoPublishTask(CargoBuildTask):
     def _sanitize_version(version: str) -> str:
         """
         Cargo does not play nicely with semver metadata (ie. 1.0.1-dev3+abc123)
-         We replace that to 1.0.1-dev3abc123
+        We replace that to 1.0.1-dev3abc123
         """
         return version.replace("+", "")
 
