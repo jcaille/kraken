@@ -13,6 +13,7 @@ import unittest.mock
 from pathlib import Path
 
 import pytest
+from requests_mock import Mocker
 
 from kraken.core import BuildError
 from kraken.core.testing import kraken_ctx, kraken_project
@@ -36,6 +37,7 @@ class CargoRepositoryWithAuth:
     index_url: str
     creds: tuple[str, str] | None
     token: str | None
+
 
 def skip_publish_lib(repository: CargoRepositoryWithAuth, tempdir: Path) -> None:
     lib_dir = tempdir.joinpath("cargo-hello-world-lib")
@@ -64,7 +66,7 @@ def skip_publish_lib(repository: CargoRepositoryWithAuth, tempdir: Path) -> None
             cargo_check_toolchain_version(minimal_version="1.60")
             publish_task = cargo_publish(
                 cargo_registry_id,
-                version='0.1.0',
+                version="0.1.0",
                 cargo_toml_file=project1.directory.joinpath("Cargo.toml"),
             )
             graph = project1.context.execute(["publish"])
@@ -185,20 +187,20 @@ def private_registry(docker_service_manager: DockerServiceManager) -> str:
     time.sleep(5)
     return index_url
 
+
 def test__private_cargo_registry_publish_and_consume(tempdir: Path, private_registry: str) -> None:
     repository = CargoRepositoryWithAuth(
         "kraken-std-cargo-integration-test", private_registry, None, "xxxxxxxxxxxxxxxxxxxxxx"
     )
     publish_lib_and_build_app(repository, tempdir)
 
-def test__mock_cargo_registry_skips_publish_if_exists(tempdir: Path, requests_mock) -> None:
+
+def test__mock_cargo_registry_skips_publish_if_exists(tempdir: Path, requests_mock: Mocker) -> None:
     registry_url = "http://0.0.0.0:35510"
     index_url = f"sparse+{registry_url}/"
 
     requests_mock.get(f"{registry_url}/config.json", text="{}")
     requests_mock.get(f"{registry_url}/he/ll/hello-world-lib", text='{"vers": "0.1.0"}')
 
-    repository = CargoRepositoryWithAuth(
-        "kraken-std-cargo-integration-test", index_url, None, "xxxxxxxxxxxxxxxxxxxxxx"
-    )
+    repository = CargoRepositoryWithAuth("kraken-std-cargo-integration-test", index_url, None, "xxxxxxxxxxxxxxxxxxxxxx")
     skip_publish_lib(repository, tempdir)
