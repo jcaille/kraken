@@ -67,7 +67,10 @@ class CargoPublishTask(CargoBuildTask):
             return self._check_package_existence(package_name, version, self.registry.get())
         except Exception as e:
             logger.warn(
-                f"An error happened while checking for {package_name} existence in {self.registry.get().alias}, {e}",
+                "An error happened while checking for {} existence in %s, %s",
+                package_name,
+                self.registry.get().alias,
+                e,
             )
             return TaskStatus.pending("Unable to verify package existence")
 
@@ -194,7 +197,7 @@ class CargoPublishTask(CargoBuildTask):
         index_response = session.get(f"{index}/{index_path}")
 
         if index_response.status_code in [404, 410, 451]:
-            return TaskStatus.pending("Package {package_name} does not already exists in {registry.alias}")
+            return TaskStatus.pending(f"Package {package_name} does not already exists in {registry.alias}")
         elif index_response.status_code % 200 != 0:
             logger.warn(index_response.text)
             return TaskStatus.pending("Unable to verify package existence - error when fetching package information")
